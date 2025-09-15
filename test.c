@@ -24,14 +24,14 @@ int main(int argc, char *argv[]) {
   config = libkdump_get_autoconfig();
   libkdump_init(config);
 
-  srand(time(NULL));
-  const char *test = strings[rand() % (sizeof(strings) / sizeof(strings[0]))];
+  srand(time(NULL)); //regular rand starter
+  const char *test = strings[rand() % (sizeof(strings) / sizeof(strings[0]))]; //pick random string - why always 5?
   int index = 0;
 
   printf("Expect: \x1b[32;1m%s\x1b[0m\n", test);
   printf("   Got: \x1b[33;1m");
   while (index < strlen(test)) {
-    int value = libkdump_read((size_t)(test + index));
+    int value = libkdump_read((size_t)(test + index)); //read one char from string illegally?
     if (!isprint(value))
       continue;
     printf("%c", value);
