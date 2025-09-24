@@ -158,7 +158,7 @@ static inline uint64_t rdtsc() {
   return a;
 }
 
-#if defined(__x86_64__)
+// #if defined(__x86_64__)
 // ---------------------------------------------------------------------------
 static inline void maccess(void *p) {
   asm volatile("movq (%0), %%rax\n" : : "c"(p) : "rax");
@@ -168,17 +168,17 @@ static inline void maccess(void *p) {
 static void flush(void *p) {
   asm volatile("clflush 0(%0)\n" : : "c"(p) : "rax");
 }
-#else
-// ---------------------------------------------------------------------------
-static inline void maccess(void *p) {
-  asm volatile("movl (%0), %%eax\n" : : "c"(p) : "eax");
-}
+// #else
+// // ---------------------------------------------------------------------------
+// static inline void maccess(void *p) {
+//   asm volatile("movl (%0), %%eax\n" : : "c"(p) : "eax");
+// }
 
-// ---------------------------------------------------------------------------
-static void flush(void *p) {
-  asm volatile("clflush 0(%0)\n" : : "c"(p) : "eax");
-}
-#endif
+// // ---------------------------------------------------------------------------
+// static void flush(void *p) {
+//   asm volatile("clflush 0(%0)\n" : : "c"(p) : "eax");
+// }
+// #endif
 
 // ---------------------------------------------------------------------------
 static int __attribute__((always_inline)) flush_reload(void *ptr) { //checks if ptr is in cache
