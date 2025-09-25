@@ -8,3 +8,6 @@ test
 *.a
 *.o
 *.so
+*.mdf
+*.ldf
+*.vsidx
