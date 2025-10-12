@@ -24,6 +24,7 @@
     <None Include="kaslr_offset\direct_physical_map.sh" />
     <None Include="kaslr_offset\kernel_module\Makefile" />
     <None Include="kaslr_offset\kernel_module\.gitignore" />
+    <None Include="libkdump\build.py" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="kaslr.c">
@@ -68,6 +69,9 @@
   </ItemGroup>
   <ItemGroup>
     <MASM Include="libkdump\meltdown.asm">
+      <Filter>Source Files</Filter>
+    </MASM>
+    <MASM Include="libkdump\util.asm">
       <Filter>Source Files</Filter>
     </MASM>
   </ItemGroup>

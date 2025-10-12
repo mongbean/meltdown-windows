@@ -23,6 +23,7 @@
     <None Include="kaslr_offset\direct_physical_map.sh" />
     <None Include="kaslr_offset\kernel_module\.gitignore" />
     <None Include="kaslr_offset\kernel_module\Makefile" />
+    <None Include="libkdump\build.py" />
     <None Include="libkdump\Makefile" />
     <None Include="libkdump\README.md" />
     <None Include="LICENSE" />
@@ -52,6 +53,7 @@
   </ItemGroup>
   <ItemGroup>
     <MASM Include="libkdump\meltdown.asm" />
+    <MASM Include="libkdump\util.asm" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
