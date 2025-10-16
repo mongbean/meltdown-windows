@@ -4,8 +4,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#if !(defined(__x86_64__) || defined(__i386__))
-# error x86-64 and i386 are the only supported architectures
+#if !(defined(_M_X64) || defined(_M_IX86)))
+#error x86-64 and i386 are the only supported architectures
 #endif
 
 #ifdef __x86_64__

